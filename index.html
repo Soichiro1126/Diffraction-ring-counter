@@ -142,6 +142,9 @@ const PY_URL = "ring_counter.py";
 const PYODIDE_URL = "https://cdn.jsdelivr.net/pyodide/v0.26.2/full/";
 // Pyodide に読み込む Python パッケージ（すべて公式ビルドが存在する）
 const PY_PACKAGES = ["numpy", "scipy", "matplotlib", "pandas", "opencv-python"];
+// 解析前に長辺をこの画素数まで縮小する。大きいほど外側の細かいリングまで
+// 数えられるが、iPhone では解析が重く・遅くなる（精度と速度のトレードオフ）。
+const MAX_SIDE = 2048;
 
 // 調整用スライダーの定義（Params の該当フィールドを上書きする）
 const CONTROLS = [
@@ -220,7 +223,7 @@ def get_param_defaults():
     return json.dumps({k: (v.item() if hasattr(v, "item") else v)
                        for k, v in _PARAM_DEFAULTS.items()})
 
-def analyze(image_bytes, overrides_json):
+def analyze(image_bytes, overrides_json, max_side):
     ov = json.loads(overrides_json) if overrides_json else {}
     # 型を Params の既定に合わせて丸める（int フィールドへ float を入れない）
     clean = {}
@@ -236,7 +239,8 @@ def analyze(image_bytes, overrides_json):
     if img is None:
         raise ValueError("画像を復号できません（HEIC など未対応形式の可能性）。")
 
-    n_rings, annotated_png, profile_png, info = rc.analyze_for_display(img, p)
+    n_rings, annotated_png, profile_png, info = rc.analyze_for_display(
+        img, p, max_side=int(max_side))
 
     def b64(b): return base64.b64encode(b).decode("ascii") if b else ""
     center = info.get("center")
@@ -321,7 +325,8 @@ async function runAnalysis(){
     const ovJson = JSON.stringify(overrides);
     pyodide.globals.set("_IMG", currentImageBytes);
     pyodide.globals.set("_OV", ovJson);
-    const resStr = pyodide.runPython(`analyze(_IMG, _OV)`);
+    pyodide.globals.set("_MAXSIDE", MAX_SIDE);
+    const resStr = pyodide.runPython(`analyze(_IMG, _OV, _MAXSIDE)`);
     const res = JSON.parse(resStr);
     showResult(res);
     setProgress(100);
