@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>回折リングカウンタ</title>
+<style>
+  :root{
+    --bg:#0b0f1a; --panel:#141a2b; --panel2:#1b2338; --line:#2a3350;
+    --fg:#e8ecf7; --muted:#96a0bc; --accent:#37c0ff; --accent2:#ff4fd8;
+    --ok:#3ddc84; --warn:#ffcc55;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Helvetica Neue",Arial,sans-serif;
+    -webkit-text-size-adjust:100%}
+  .wrap{max-width:720px;margin:0 auto;padding:14px 14px 60px}
+  header{display:flex;align-items:center;gap:10px;padding:6px 2px 12px}
+  header h1{font-size:18px;margin:0;font-weight:700;letter-spacing:.02em}
+  header .sub{font-size:12px;color:var(--muted)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:14px;margin-bottom:14px}
+  .status{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted)}
+  .spinner{width:16px;height:16px;border-radius:50%;border:2px solid var(--line);
+    border-top-color:var(--accent);animation:spin 1s linear infinite;flex:0 0 auto}
+  .status.ready .spinner{display:none}
+  .status.ready{color:var(--ok)}
+  .status.err{color:#ff7676}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .progress{height:4px;background:var(--panel2);border-radius:3px;overflow:hidden;margin-top:10px}
+  .progress > i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--accent2));
+    transition:width .3s ease}
+  .pickrow{display:flex;gap:10px;flex-wrap:wrap}
+  .btn{appearance:none;border:0;border-radius:12px;padding:14px 18px;font-size:16px;font-weight:700;
+    background:linear-gradient(180deg,var(--accent),#1a9fe0);color:#00121f;cursor:pointer;flex:1;
+    text-align:center;min-width:140px;transition:opacity .2s,transform .05s}
+  .btn:active{transform:translateY(1px)}
+  .btn.secondary{background:var(--panel2);color:var(--fg);border:1px solid var(--line)}
+  .btn[disabled]{opacity:.45;cursor:not-allowed}
+  input[type=file]{display:none}
+  .result-num{font-size:15px;color:var(--muted);text-align:center;margin:2px 0 12px}
+  .result-num b{display:block;font-size:52px;line-height:1.05;color:var(--fg);font-weight:800}
+  .result-num .unit{font-size:20px;color:var(--muted);margin-left:4px;font-weight:600}
+  .imgbox{background:#000;border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:10px}
+  .imgbox img{display:block;width:100%;height:auto}
+  .imglabel{font-size:12px;color:var(--muted);margin:0 2px 6px}
+  .meta{font-size:12px;color:var(--muted);line-height:1.7}
+  .meta code{color:var(--fg);background:var(--panel2);padding:1px 6px;border-radius:6px}
+  details{border-top:1px solid var(--line);margin-top:6px;padding-top:6px}
+  summary{cursor:pointer;font-size:14px;font-weight:600;padding:8px 2px;color:var(--fg);list-style:none}
+  summary::-webkit-details-marker{display:none}
+  summary::before{content:"▸ ";color:var(--accent)}
+  details[open] summary::before{content:"▾ "}
+  .ctrl{margin:12px 2px}
+  .ctrl label{display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px}
+  .ctrl label .val{color:var(--accent);font-variant-numeric:tabular-nums;font-weight:700}
+  .ctrl input[type=range]{width:100%;accent-color:var(--accent)}
+  .ctrl .hint{font-size:11px;color:var(--muted);margin-top:3px}
+  .savebar{display:flex;gap:10px;margin-top:6px}
+  .hidden{display:none !important}
+  .toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);
+    background:var(--panel2);border:1px solid var(--line);color:var(--fg);
+    padding:10px 16px;border-radius:10px;font-size:13px;opacity:0;transition:opacity .3s;pointer-events:none}
+  .toast.show{opacity:1}
+  .note{font-size:11px;color:var(--muted);margin-top:8px;line-height:1.6}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>回折リングカウンタ</h1>
+      <div class="sub">撮影 → その場でリング本数を自動カウント</div>
+    </div>
+  </header>
+
+  <!-- 起動状態 -->
+  <div class="card">
+    <div id="status" class="status">
+      <span class="spinner"></span>
+      <span id="statusText">解析エンジンを準備しています…</span>
+    </div>
+    <div class="progress"><i id="progressBar"></i></div>
+  </div>
+
+  <!-- 撮影 / 画像選択 -->
+  <div class="card">
+    <div class="pickrow">
+      <label class="btn" id="cameraBtn" aria-disabled="true">
+        写真を撮る
+        <input type="file" id="cameraInput" accept="image/*" capture="environment">
+      </label>
+      <label class="btn secondary" id="libraryBtn" aria-disabled="true">
+        画像を選ぶ
+        <input type="file" id="libraryInput" accept="image/*">
+      </label>
+    </div>
+    <div class="note">
+      ※ iPhone は「設定 ▸ カメラ ▸ フォーマット」を<b>「互換性優先」</b>にしてください（HEIC 形式は解析できません）。
+    </div>
+  </div>
+
+  <!-- 結果 -->
+  <div class="card hidden" id="resultCard">
+    <div class="result-num">
+      検出したリング本数
+      <b><span id="ringCount">–</span><span class="unit">本</span></b>
+    </div>
+
+    <div class="imglabel">検出位置（採用した側を強調）</div>
+    <div class="imgbox"><img id="annotatedImg" alt="検出位置"></div>
+
+    <div class="imglabel">輝度プロファイル（判定の根拠）</div>
+    <div class="imgbox"><img id="profileImg" alt="プロファイル"></div>
+
+    <div class="meta" id="metaBox"></div>
+
+    <div class="savebar">
+      <a class="btn secondary" id="saveAnnotated" download="rings_annotated.png">検出画像を保存</a>
+      <a class="btn secondary" id="saveProfile" download="rings_profile.png">プロファイルを保存</a>
+    </div>
+
+    <!-- パラメータ調整 -->
+    <details id="paramDetails">
+      <summary>パラメータを調整する</summary>
+      <div id="controls"></div>
+      <div class="note">つまみを動かすと自動で再計算します。数値の意味は引き継ぎ資料の「パラメータ一覧」を参照。</div>
+    </details>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================
+   設定
+   ============================================================ */
+// 解析本体（Python）の URL。GitHub Pages では index.html と同じ場所に置く。
+const PY_URL = "ring_counter.py";
+const PYODIDE_URL = "https://cdn.jsdelivr.net/pyodide/v0.26.2/full/";
+// Pyodide に読み込む Python パッケージ（すべて公式ビルドが存在する）
+const PY_PACKAGES = ["numpy", "scipy", "matplotlib", "pandas", "opencv-python"];
+
+// 調整用スライダーの定義（Params の該当フィールドを上書きする）
+const CONTROLS = [
+  {key:"presmooth",     label:"平滑化の回数",       min:0,  max:30,  step:1,   hint:"画像のざらつきを均す回数（Fiji の Smooth 相当）"},
+  {key:"line_width",    label:"平均する本数",       min:1,  max:15,  step:2,   hint:"長軸に垂直な方向に平均してノイズを減らす幅[px]"},
+  {key:"inner_radius",  label:"内側／中間の境界",   min:20, max:300, step:5,   hint:"中心の強い光の裾（内側領域）の外端[px]"},
+  {key:"middle_radius", label:"中間／外側の境界",   min:100,max:1500,step:20,  hint:"中間領域と外側領域の境界[px]"},
+  {key:"inner_height",  label:"内側の検出感度",     min:0.05,max:2, step:0.05, hint:"小さいほど微弱なリングも拾う（内側）", fixed:2},
+  {key:"middle_height", label:"中間の検出感度",     min:1,  max:40,  step:1,   hint:"小さいほど微弱なリングも拾う（中間）"},
+  {key:"outer_height",  label:"外側の検出感度",     min:1,  max:60,  step:1,   hint:"小さいほど微弱なリングも拾う（外側）"},
+];
+
+/* ============================================================
+   状態
+   ============================================================ */
+let pyodide = null;
+let ready = false;
+let currentImageBytes = null;   // Uint8Array
+let defaults = {};              // Params の既定値
+let overrides = {};             // ユーザが動かした値
+let running = false;
+let rerunQueued = false;
+
+/* ============================================================
+   小物
+   ============================================================ */
+const $ = (id) => document.getElementById(id);
+function setStatus(text, cls){
+  const s = $("status"); s.className = "status" + (cls ? " " + cls : "");
+  $("statusText").textContent = text;
+}
+function setProgress(pct){ $("progressBar").style.width = Math.max(0,Math.min(100,pct)) + "%"; }
+let toastTimer = null;
+function toast(msg){
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toastTimer); toastTimer = setTimeout(()=>t.classList.remove("show"), 1800);
+}
+
+/* ============================================================
+   Pyodide の起動
+   ============================================================ */
+async function boot(){
+  try{
+    setStatus("解析エンジンを読み込み中…（初回のみ時間がかかります）"); setProgress(8);
+    const s = document.createElement("script");
+    s.src = PYODIDE_URL + "pyodide.js";
+    await new Promise((res, rej)=>{ s.onload = res; s.onerror = ()=>rej(new Error("pyodide.js の読み込みに失敗")); document.head.appendChild(s); });
+    setProgress(20);
+
+    pyodide = await loadPyodide({ indexURL: PYODIDE_URL });
+    setProgress(35);
+
+    setStatus("計算用ライブラリを取得中…（numpy / scipy / opencv など）");
+    await pyodide.loadPackage(PY_PACKAGES, { messageCallback: ()=>{} });
+    setProgress(70);
+
+    setStatus("解析コードを読み込み中…");
+    const src = await (await fetch(PY_URL, {cache:"no-cache"})).text();
+    pyodide.FS.writeFile("ring_counter_impl.py", src);
+    setProgress(82);
+
+    // JS から呼ぶ薄いラッパを定義（解析本体には手を触れない）
+    pyodide.runPython(`
+import json, base64
+import numpy as np
+import cv2
+import importlib.util as _ilu
+_spec = _ilu.spec_from_file_location("ring_counter_impl", "ring_counter_impl.py")
+rc = _ilu.module_from_spec(_spec); _spec.loader.exec_module(rc)
+
+_PARAM_DEFAULTS = {f.name: getattr(rc.Params(), f.name)
+                   for f in rc.Params.__dataclass_fields__.values()}
+
+def get_param_defaults():
+    # numpy 型を素の Python 型へ
+    return json.dumps({k: (v.item() if hasattr(v, "item") else v)
+                       for k, v in _PARAM_DEFAULTS.items()})
+
+def analyze(image_bytes, overrides_json):
+    ov = json.loads(overrides_json) if overrides_json else {}
+    # 型を Params の既定に合わせて丸める（int フィールドへ float を入れない）
+    clean = {}
+    for k, v in ov.items():
+        if k in _PARAM_DEFAULTS:
+            d = _PARAM_DEFAULTS[k]
+            clean[k] = int(round(v)) if isinstance(d, int) and not isinstance(d, bool) else v
+    p = rc.Params(**clean)
+    p.validate()
+
+    arr = np.frombuffer(image_bytes.to_py(), dtype=np.uint8)
+    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if img is None:
+        raise ValueError("画像を復号できません（HEIC など未対応形式の可能性）。")
+
+    n_rings, annotated_png, profile_png, info = rc.analyze_for_display(img, p)
+
+    def b64(b): return base64.b64encode(b).decode("ascii") if b else ""
+    center = info.get("center")
+    out = {
+        "n_rings": int(n_rings),
+        "adopted_side": info.get("adopted_side"),
+        "n_plus": int(info.get("n_plus", 0)),
+        "n_minus": int(info.get("n_minus", 0)),
+        "angle_deg": float(info.get("angle_deg") or 0.0),
+        "axis_ratio": (float(info["axis_ratio"]) if info.get("axis_ratio") else None),
+        "width_mode": info.get("width_mode"),
+        "scale": float(info.get("scale", 1.0)),
+        "center": [float(center[0]), float(center[1])] if center else None,
+        "annotated_b64": b64(annotated_png),
+        "profile_b64": b64(profile_png),
+    }
+    return json.dumps(out)
+`);
+    defaults = JSON.parse(pyodide.runPython("get_param_defaults()"));
+    setProgress(100);
+
+    buildControls();
+    ready = true;
+    $("cameraBtn").setAttribute("aria-disabled","false");
+    $("libraryBtn").setAttribute("aria-disabled","false");
+    setStatus("準備完了。写真を撮るか画像を選んでください。", "ready");
+  }catch(e){
+    console.error(e);
+    setStatus("起動に失敗しました: " + (e && e.message ? e.message : e), "err");
+  }
+}
+
+/* ============================================================
+   スライダー UI
+   ============================================================ */
+function buildControls(){
+  const box = $("controls"); box.innerHTML = "";
+  for(const c of CONTROLS){
+    const def = defaults[c.key];
+    const init = (overrides[c.key] !== undefined) ? overrides[c.key] : def;
+    const wrap = document.createElement("div"); wrap.className = "ctrl";
+    const fixed = c.fixed || 0;
+    wrap.innerHTML = `
+      <label>${c.label}<span class="val" id="val_${c.key}">${(+init).toFixed(fixed)}</span></label>
+      <input type="range" id="rng_${c.key}" min="${c.min}" max="${c.max}" step="${c.step}" value="${init}">
+      <div class="hint">${c.hint}</div>`;
+    box.appendChild(wrap);
+    const rng = $("rng_"+c.key), val = $("val_"+c.key);
+    rng.addEventListener("input", ()=>{ val.textContent = (+rng.value).toFixed(fixed); });
+    rng.addEventListener("change", ()=>{
+      overrides[c.key] = +rng.value;
+      if(currentImageBytes) runAnalysis();
+    });
+  }
+}
+
+/* ============================================================
+   画像入力
+   ============================================================ */
+function handleFile(file){
+  if(!file) return;
+  if(!ready){ toast("まだ準備中です"); return; }
+  const reader = new FileReader();
+  reader.onload = () => {
+    currentImageBytes = new Uint8Array(reader.result);
+    runAnalysis();
+  };
+  reader.readAsArrayBuffer(file);
+}
+$("cameraInput").addEventListener("change", e=>handleFile(e.target.files[0]));
+$("libraryInput").addEventListener("change", e=>handleFile(e.target.files[0]));
+
+/* ============================================================
+   解析実行
+   ============================================================ */
+async function runAnalysis(){
+  if(!ready || !currentImageBytes) return;
+  if(running){ rerunQueued = true; return; }   // 連打時は最後の1回だけ
+  running = true;
+  setStatus("解析中…", ""); setProgress(30);
+  try{
+    const ovJson = JSON.stringify(overrides);
+    pyodide.globals.set("_IMG", currentImageBytes);
+    pyodide.globals.set("_OV", ovJson);
+    const resStr = pyodide.runPython(`analyze(_IMG, _OV)`);
+    const res = JSON.parse(resStr);
+    showResult(res);
+    setProgress(100);
+    setStatus("完了。パラメータを調整すると再計算します。", "ready");
+  }catch(e){
+    console.error(e);
+    setStatus("解析に失敗: " + (e && e.message ? String(e.message).split("\n").pop() : e), "err");
+  }finally{
+    running = false;
+    if(rerunQueued){ rerunQueued = false; runAnalysis(); }
+  }
+}
+
+function showResult(res){
+  $("resultCard").classList.remove("hidden");
+  $("ringCount").textContent = res.n_rings;
+  const ann = "data:image/png;base64," + res.annotated_b64;
+  const prof = "data:image/png;base64," + res.profile_b64;
+  $("annotatedImg").src = ann;
+  $("profileImg").src = prof;
+  $("saveAnnotated").href = ann;
+  $("saveProfile").href = prof;
+  const side = res.adopted_side === "plus" ? "＋側" : "−側";
+  $("metaBox").innerHTML =
+    `採用: <code>${side}</code>（＋側 ${res.n_plus} 本 / −側 ${res.n_minus} 本）　` +
+    `長軸角度: <code>${res.angle_deg.toFixed(1)}°</code>　` +
+    (res.axis_ratio!=null ? `軸比: <code>${res.axis_ratio.toFixed(3)}</code>　` : "") +
+    `縮小率: <code>${res.scale.toFixed(3)}</code>`;
+  $("resultCard").scrollIntoView({behavior:"smooth", block:"start"});
+}
+
+boot();
+</script>
+</body>
+</html>
