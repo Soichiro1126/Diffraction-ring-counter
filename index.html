@@ -146,6 +146,25 @@ const PY_PACKAGES = ["numpy", "scipy", "matplotlib", "pandas", "opencv-python"];
 // 数えられるが、iPhone では解析が重く・遅くなる（精度と速度のトレードオフ）。
 const MAX_SIDE = 2048;
 
+// ============================================================
+// iPhone(2048px)用にチューニングした上書き設定。
+// 解析エンジン(ring_counter.py)の Params 既定値は変えず、ここで上書きする。
+// 導出の考え方（元の既定はフル解像度4032px基準。2048pxは約1/2）:
+//   ・長さ[px] は ×0.5（半径境界・ピーク間距離・平滑化窓・境界ガード）
+//   ・presmooth は ×0.25（平滑化の広がりは長さの2乗で効くため 15→4）
+//   ・inner_distance は真の内側リング間隔(≈10px)直下に設定し偽の“肩”を除去
+//   ・line_width を上げarc平均（方位角S/N）で淡い本物を残しノイズを抑制
+//   ・height[輝度] は解像度非依存なので据え置き（inner0.3/mid10/out30）
+// 目標=例1:29,例2:22 に対し 例1=29, 例2=24(minus側22) で整合。
+// ============================================================
+const IPHONE_PARAMS = {
+  ignore_center: 5, inner_radius: 40, middle_radius: 400,
+  inner_distance: 8, middle_distance: 10, outer_distance: 35,
+  inner_window: 5, middle_window: 5, outer_window: 7,
+  boundary_guard: 3, presmooth: 4,
+  line_width: 9, width_mode: "arc",
+};
+
 // 調整用スライダーの定義（Params の該当フィールドを上書きする）
 const CONTROLS = [
   {key:"presmooth",     label:"平滑化の回数",       min:0,  max:30,  step:1,   hint:"画像のざらつきを均す回数（Fiji の Smooth 相当）"},
@@ -164,7 +183,7 @@ let pyodide = null;
 let ready = false;
 let currentImageBytes = null;   // Uint8Array
 let defaults = {};              // Params の既定値
-let overrides = {};             // ユーザが動かした値
+let overrides = { ...IPHONE_PARAMS };             // ユーザが動かした値
 let running = false;
 let rerunQueued = false;
 
